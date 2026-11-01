@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PDFKit - all-in-one PDF tools</title>
+<style>
+:root{--bg:#f6f6f8;--fg:#1b1b20;--card:#fff;--line:#e2e2e8;--accent:#e5322d;--accent-fg:#fff;--muted:#6b6b78;--ok:#16794c;--err:#b3261e;color-scheme:light dark}
+@media(prefers-color-scheme:dark){:root{--bg:#131316;--fg:#ececf1;--card:#1d1d22;--line:#32323a;--muted:#9a9aa8;--ok:#5fd39b;--err:#ff8a80}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--fg)}
+a{color:inherit}header{display:flex;gap:1rem;align-items:center;padding:.8rem 1.2rem;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+.logo{font-weight:800;font-size:1.3rem;text-decoration:none}.logo span{color:var(--accent)}header input{flex:1;max-width:340px;margin-left:auto}
+main{max-width:1100px;margin:0 auto;padding:1.2rem}h2{margin:1.8rem 0 .6rem;font-size:1.05rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:.8rem}
+.card{display:block;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:1rem;text-decoration:none;transition:.15s}
+.card:hover{border-color:var(--accent);transform:translateY(-2px)}.card b{display:block;margin-bottom:.2rem}.card small{color:var(--muted)}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:1.2rem;margin:1rem 0}
+input,select,textarea,button{font:inherit;color:inherit}input[type=text],input[type=number],input[type=password],input[type=search],select,textarea{width:100%;padding:.5rem .6rem;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+button,.btn{cursor:pointer;border:1px solid var(--line);background:var(--card);border-radius:8px;padding:.45rem .9rem;text-decoration:none;display:inline-block}button:hover{border-color:var(--accent)}
+.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:600;padding:.7rem 1.6rem;font-size:1.05rem}.primary:disabled{opacity:.5;cursor:not-allowed}
+.drop{border:2px dashed var(--line);border-radius:12px;padding:2rem;text-align:center;cursor:pointer}.drop.over{border-color:var(--accent);background:#e5322d12}
+.row{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}.files{list-style:none;padding:0;margin:.8rem 0}.files li{display:flex;gap:.5rem;align-items:center;padding:.35rem .6rem;border:1px solid var(--line);border-radius:8px;margin:.3rem 0}.files li span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.opts{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:.8rem;margin:1rem 0}.opts label{display:block;font-size:.85rem;color:var(--muted);margin-bottom:.2rem}.opts .chk label{display:flex;gap:.5rem;align-items:center;color:var(--fg);font-size:.95rem}.opts .chk input{width:auto}
+.msg{padding:.7rem 1rem;border-radius:8px;margin:.8rem 0}.err{background:#b3261e22;color:var(--err)}.ok{background:#16794c22;color:var(--ok)}
+.stage{position:relative;display:inline-block;max-width:100%;border:1px solid var(--line);line-height:0;background:#fff}.stage img{max-width:100%;display:block;user-select:none;-webkit-user-drag:none}.stage svg{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:crosshair}
+.pages{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:.7rem}.tile{border:1px solid var(--line);border-radius:8px;padding:.4rem;text-align:center;font-size:.8rem}.tile .th{height:150px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#8881}.tile img{max-height:140px;max-width:100%;transition:transform .2s}.tile button{padding:.1rem .4rem}
+canvas.pad{border:1px solid var(--line);border-radius:8px;background:#fff;touch-action:none;max-width:100%}
+.hint{color:var(--muted);font-size:.85rem}.tabs button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.spin{display:inline-block;width:1em;height:1em;border:2px solid #fff6;border-top-color:currentColor;border-radius:50%;animation:s .7s linear infinite;vertical-align:-.15em;margin-right:.4rem}@keyframes s{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<header><a class="logo" href="#/">PDF<span>Kit</span></a><a href="#/workflow">Workflows</a><input id="q" type="search" placeholder="Search tools..." aria-label="Search tools"></header>
+<main id="app"></main>
+<script>
+"use strict";
+const NS = "http://www.w3.org/2000/svg";
+const CATS = {organize: "Organize PDF", optimize: "Optimize PDF", to_pdf: "Convert to PDF", from_pdf: "Convert from PDF", edit: "Edit PDF", security: "PDF Security", intelligence: "PDF Intelligence (AI)"};
+const NEEDS = {soffice: "LibreOffice", tesseract: "Tesseract", gs: "Ghostscript", weasyprint: "Pango/GTK libraries"};
+const $app = document.getElementById("app");
+let TOOLS = [];
+
+// ---- tiny DOM helper (always uses text nodes -> no XSS) ---------------------------------------
+function h(tag, props, ...kids) {
+  const svg = tag.startsWith("svg:");
+  const e = svg ? document.createElementNS(NS, tag.slice(4)) : document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (k === "class") e.setAttribute("class", v);
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (k === "style") e.setAttribute("style", v);
+    else if (v !== false && v != null) { if (!svg && k in e) e[k] = v; else e.setAttribute(k, v); }
+  }
+  for (const c of kids.flat(Infinity)) if (c != null && c !== false) e.append(c.nodeType ? c : document.createTextNode(c));
+  return e;
+}
+const fmt = n => n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
+const mount = (...n) => { $app.replaceChildren(...n); window.scrollTo(0, 0); };
+
+// ---- routing ----------------------------------------------------------------------------------
+async function boot() {
+  try { TOOLS = await (await fetch("/api/tools")).json(); }
+  catch { return mount(h("div", {class: "msg err"}, "Cannot reach the server.")); }
+  window.addEventListener("hashchange", route);
+  document.getElementById("q").addEventListener("input", e => { if (location.hash && location.hash !== "#/") location.hash = "#/"; else home(e.target.value); });
+  route();
+}
+function route() {
+  const m = location.hash.match(/^#\/t\/(\w+)/);
+  if (m) { const t = TOOLS.find(x => x.id === m[1]); return t ? toolPage(t) : home(); }
+  if (location.hash === "#/workflow") return workflowPage();
+  home(document.getElementById("q").value);
+}
+function home(filter = "") {
+  const f = filter.toLowerCase().trim(), out = [h("h1", {}, "Every PDF tool, in one place"), h("p", {class: "hint"}, "Files are processed on your own server and deleted right after the result is sent.")];
+  for (const [cat, title] of Object.entries(CATS)) {
+    const list = TOOLS.filter(t => t.cat === cat && (!f || (t.name + t.desc).toLowerCase().includes(f)));
+    if (list.length) out.push(h("h2", {}, title), h("div", {class: "grid"}, list.map(t => h("a", {class: "card", href: "#/t/" + t.id, style: t.available === false ? "opacity:.55" : ""}, h("b", {}, t.name), h("small", {}, t.desc), t.available === false && h("small", {class: "hint"}, " (needs " + NEEDS[t.needs] + " installed)")))));
+  }
+  mount(...out);
+}
+
+// ---- options form -----------------------------------------------------------------------------
+function defaults(t) { const o = {}; for (const op of t.options) if (op.type !== "file" && op.default !== "") o[op.name] = op.default; return o; }
+function optionsForm(t, target, aux) {
+  const box = h("div", {class: "opts"});
+  for (const op of t.options) {
+    if (op.type === "hidden") continue;
+    const set = v => { target[op.name] = v; };
+    let inp;
+    if (op.type === "select") inp = h("select", {onchange: e => set(e.target.value)}, op.choices.map(([v, l]) => h("option", {value: v, selected: String(v) === String(target[op.name])}, l)));
+    else if (op.type === "check") { inp = h("input", {type: "checkbox", checked: !!target[op.name], onchange: e => set(e.target.checked)}); box.append(h("div", {class: "chk"}, h("label", {}, inp, op.label), op.help && h("div", {class: "hint"}, op.help))); continue; }
+    else if (op.type === "textarea") inp = h("textarea", {rows: 3, value: target[op.name] || "", oninput: e => set(e.target.value)});
+    else if (op.type === "file") inp = h("input", {type: "file", accept: "image/*", onchange: e => { aux.length = 0; aux.push(...e.target.files); }});
+    else if (op.type === "color") inp = h("input", {type: "color", value: target[op.name] || "#000000", oninput: e => set(e.target.value)});
+    else inp = h("input", {type: op.type === "number" ? "number" : op.type === "password" ? "password" : "text", step: "any", value: target[op.name] ?? "", oninput: e => set(e.target.value), autocomplete: "off"});
+    box.append(h("div", {}, h("label", {}, op.label), inp, op.help && h("div", {class: "hint"}, op.help)));
+  }
+  return box;
+}
+
+// ---- request + download helpers ---------------------------------------------------------------
+function filenameOf(res, fallback) {
+  const cd = res.headers.get("content-disposition") || "";
+  const m = cd.match(/filename\*=utf-8''([^;]+)/i) || cd.match(/filename="?([^";]+)"?/i);
+  return m ? decodeURIComponent(m[1]) : fallback;
+}
+async function post(url, fd, status) {
+  status.replaceChildren(h("div", {class: "msg ok"}, h("span", {class: "spin"}), "Processing..."));
+  let res;
+  try { res = await fetch(url, {method: "POST", body: fd}); } catch { status.replaceChildren(h("div", {class: "msg err"}, "Network error.")); return null; }
+  if (!res.ok) {
+    let d = "Request failed (" + res.status + ")";
+    try { d = (await res.json()).detail || d; } catch {}
+    status.replaceChildren(h("div", {class: "msg err"}, typeof d === "string" ? d : JSON.stringify(d)));
+    return null;
+  }
+  const blob = await res.blob(), name = filenameOf(res, "result");
+  const href = URL.createObjectURL(blob);
+  const a = h("a", {class: "btn primary", href, download: name}, "Download " + name);
+  const info = [fmt(blob.size)], orig = +res.headers.get("x-original-size");
+  if (orig) info.push(`was ${fmt(orig)} (${Math.max(0, Math.round((1 - blob.size / orig) * 100))}% smaller)`);
+  const view = /\.(html|pdf)$/i.test(name) ? h("a", {class: "btn", href, target: "_blank", rel: "noopener"}, "Open") : null;
+  status.replaceChildren(h("div", {class: "msg ok"}, "Done - " + info.join(", ")), h("div", {class: "row"}, a, view));
+  a.click();
+  return blob;
+}
+
+// ---- tool page --------------------------------------------------------------------------------
+function toolPage(t) {
+  const S = {files: [], opts: defaults(t), aux: [], ops: [], plan: [], values: {}, info: null};
+  const single = t.max === 1 || (t.visual && t.visual !== "camera");
+  const status = h("div"), list = h("ul", {class: "files"}), editor = h("div");
+  const runBtn = h("button", {class: "primary", onclick: run}, t.name);
+  const input = h("input", {type: "file", hidden: true, multiple: !single, accept: t.exts.join(","), onchange: e => { add([...e.target.files]); e.target.value = ""; }});
+  const drop = h("div", {class: "drop", tabindex: 0, onclick: () => input.click(), onkeydown: e => e.key === "Enter" && input.click()},
+    h("b", {}, single ? "Select a file" : "Select files"), h("div", {class: "hint"}, `or drop ${single ? "it" : "them"} here (${t.exts.join(" ")})`));
+  ["dragover", "dragenter"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", e => add([...e.dataTransfer.files]));
+
+  const swap = (i, j) => { if (j >= 0 && j < S.files.length) { [S.files[i], S.files[j]] = [S.files[j], S.files[i]]; refresh(); } };
+  function refresh() {
+    list.replaceChildren(...S.files.map((f, i) => h("li", {}, h("span", {}, f.name), h("small", {class: "hint"}, fmt(f.size)),
+      t.multi && S.files.length > 1 && h("button", {title: "Move up", onclick: () => swap(i, i - 1)}, "↑"),
+      t.multi && S.files.length > 1 && h("button", {title: "Move down", onclick: () => swap(i, i + 1)}, "↓"),
+      h("button", {title: "Remove", onclick: () => { S.files.splice(i, 1); refresh(); loadVisual(); }}, "✕"))));
+    runBtn.disabled = S.files.length < t.min;
+  }
+  async function add(fs) {
+    fs = fs.filter(f => t.exts.includes("." + f.name.split(".").pop().toLowerCase()));
+    if (!fs.length) return status.replaceChildren(h("div", {class: "msg err"}, "Unsupported file type. Allowed: " + t.exts.join(", ")));
+    status.replaceChildren();
+    if (single) S.files = [fs[0]]; else for (const f of fs) if (!S.files.some(x => x.name === f.name && x.size === f.size)) S.files.push(f);
+    refresh(); await loadVisual();
+  }
+  async function loadVisual() {
+    S.info = null; S.ops = []; S.plan = []; S.values = {};
+    editor.replaceChildren();
+    if (!t.visual || t.visual === "camera" || !S.files.length) return;
+    const fd = new FormData(); fd.append("file", S.files[0]); fd.append("password", S.opts.password || "");
+    editor.append(h("div", {class: "hint"}, "Loading preview..."));
+    const res = await fetch("/api/info", {method: "POST", body: fd});
+    if (!res.ok) { let d = "Cannot read this PDF"; try { d = (await res.json()).detail; } catch {} return editor.replaceChildren(h("div", {class: "msg err"}, d)); }
+    S.info = await res.json();
+    S.plan = S.info.pages.map((_, i) => ({page: i + 1, rotate: 0}));
+    editor.replaceChildren(buildEditor(t, S));
+  }
+  async function run() {
+    const fd = new FormData(), o = {...S.opts};
+    S.files.forEach(f => fd.append("files", f));
+    S.aux.forEach(f => fd.append("aux", f));
+    if (t.visual === "organize") o.plan = S.plan;
+    if (["edit", "crop", "redact", "sign", "forms_create"].includes(t.visual)) o.ops = S.ops;
+    if (t.visual === "forms_fill") o.values = S.values;
+    fd.append("options", JSON.stringify(o));
+    runBtn.disabled = true;
+    await post("/api/run/" + t.id, fd, status);
+    refresh();
+  }
+
+  mount(h("a", {href: "#/"}, "← All tools"), h("h1", {}, t.name), h("p", {class: "hint"}, t.desc + (t.ai ? " Needs ANTHROPIC_API_KEY on the server; document text is sent to the Claude API." : "")),
+    t.available === false && h("div", {class: "msg err"}, `This tool needs ${NEEDS[t.needs]} on the machine running PDFKit. It is not installed (see README); all other tools still work.`),
+    h("div", {class: "panel"}, drop, input,
+      t.visual === "camera" && h("div", {class: "row", style: "margin-top:.6rem"}, h("label", {class: "btn"}, "📷 Take photo", h("input", {type: "file", hidden: true, accept: "image/*", capture: "environment", onchange: e => { add([...e.target.files]); e.target.value = ""; }}))),
+      list, optionsForm(t, S.opts, S.aux), editor, h("div", {class: "row"}, runBtn), status));
+  refresh();
+}
+
+// ---- visual editors ---------------------------------------------------------------------------
+function buildEditor(t, S) {
+  switch (t.visual) {
+    case "organize": return organizeEditor(S);
+    case "forms_fill": return formsFillEditor(S);
+    case "sign": return h("div", {}, signaturePad(S), pageEditor(S, ["sign"], true, "sign"));
+    case "crop": return pageEditor(S, ["crop"], true, "crop");
+    case "redact": return pageEditor(S, ["redact"], false, "redact");
+    case "edit": return pageEditor(S, ["text", "rect", "ellipse", "line", "highlight", "ink"], false, "edit");
+    case "forms_create": return pageEditor(S, ["text", "checkbox"], false, "forms_create");
+  }
+  return h("div");
+}
+const LABEL = {text: "Text", rect: "Rectangle", ellipse: "Ellipse", line: "Line", highlight: "Highlight", ink: "Freehand", redact: "Redact area", crop: "Crop area", sign: "Signature area", checkbox: "Checkbox"};
+const HINT = {redact: "Drag to cover areas that will be removed permanently.", crop: "Drag to choose the area to keep.", sign: "Drag where the signature goes (default: bottom-right of the last page).",
+  edit: "Pick a tool, then click (text) or drag on the page.", forms_create: "Pick a field type, then drag a rectangle for each field."};
+
+function pageEditor(S, types, singleBox, visual) {
+  let cur = 1, tool = types[0], draft = null;
+  const style = {color: visual === "edit" ? "#d32f2f" : "#000000", size: 16, fill: false};
+  const img = h("img", {alt: "page preview"}), svg = h("svg:svg", {});
+  const stage = h("div", {class: "stage"}, img, svg), label = h("b"), opsList = h("ul", {class: "files"});
+  const pt = e => { const p = svg.createSVGPoint(); p.x = e.clientX; p.y = e.clientY; const q = p.matrixTransform(svg.getScreenCTM().inverse()); return [q.x, q.y]; };
+  const R = o => [Math.min(o.x0, o.x1), Math.min(o.y0, o.y1), Math.abs(o.x1 - o.x0), Math.abs(o.y1 - o.y0)];
+
+  function shape(o, ghost) {
+    const c = o.color || style.color, dash = ghost ? {"stroke-dasharray": "4"} : {};
+    if (o.type === "text" && visual === "edit") { const e = h("svg:text", {x: o.x0, y: o.y0 + o.size, "font-size": o.size, fill: c, "font-family": "Helvetica,Arial,sans-serif"}); String(o.text).split("\n").forEach((l, i) => e.append(h("svg:tspan", {x: o.x0, dy: i ? o.size * 1.2 : 0}, l))); return e; }
+    if (o.type === "ink") return h("svg:polyline", {points: o.points.map(p => p.join(",")).join(" "), fill: "none", stroke: c, "stroke-width": 2, "stroke-linecap": "round"});
+    if (o.type === "line") return h("svg:line", {x1: o.x0, y1: o.y0, x2: o.x1, y2: o.y1, stroke: c, "stroke-width": 2, ...dash});
+    const [x, y, w, hh] = R(o), base = {x, y, width: w, height: hh, ...dash};
+    if (o.type === "ellipse") return h("svg:ellipse", {cx: x + w / 2, cy: y + hh / 2, rx: w / 2, ry: hh / 2, fill: o.fill || "none", stroke: c, "stroke-width": 2, ...dash});
+    if (o.type === "highlight") return h("svg:rect", {...base, fill: c, "fill-opacity": .35});
+    if (o.type === "redact") return h("svg:rect", {...base, fill: "#000", "fill-opacity": .55, stroke: "#000"});
+    if (o.type === "rect") return h("svg:rect", {...base, fill: o.fill || "none", stroke: c, "stroke-width": 2});
+    const col = {crop: "#1565c0", sign: "#2e7d32"}[o.type] || "#6a1b9a";
+    return h("svg:g", {}, h("svg:rect", {...base, fill: col, "fill-opacity": .12, stroke: col, "stroke-width": 1.5, "stroke-dasharray": "5"}),
+      h("svg:text", {x: x + 3, y: y + 12, "font-size": 11, fill: col}, o.name || LABEL[o.type] || o.type));
+  }
+  function draw() {
+    svg.replaceChildren(...S.ops.filter(o => o.page === cur).map(o => shape(o)), ...(draft ? [shape(draft, true)] : []));
+    opsList.replaceChildren(...S.ops.map((o, i) => h("li", {}, h("span", {}, `Page ${o.page} - ${o.name || LABEL[o.type] || o.type}${o.text ? ": " + o.text.slice(0, 30) : ""}`), h("button", {onclick: () => { S.ops.splice(i, 1); draw(); }}, "✕"))));
+  }
+  function show() {
+    const pg = S.info.pages[cur - 1];
+    svg.setAttribute("viewBox", `0 0 ${pg.w} ${pg.h}`);
+    img.src = `/api/preview/${S.info.id}/${cur}?zoom=1.5`;
+    label.textContent = `Page ${cur} / ${S.info.pages.length}`;
+    draw();
+  }
+  function commit(o) {
+    if (singleBox) S.ops = S.ops.filter(x => x.type !== o.type);
+    if (visual === "forms_create") { const n = prompt("Field name:", `${o.type}_${S.ops.length + 1}`); if (!n) return; o.name = n; }
+    S.ops.push(o);
+  }
+  svg.addEventListener("pointerdown", e => {
+    e.preventDefault(); svg.setPointerCapture(e.pointerId);
+    const [x, y] = pt(e);
+    if (visual === "edit" && tool === "text") {
+      const text = prompt("Text to add:");
+      if (text) S.ops.push({type: "text", page: cur, x0: x, y0: y, text, size: +style.size || 14, color: style.color});
+      return draw();
+    }
+    draft = tool === "ink" ? {type: "ink", page: cur, points: [[x, y]], color: style.color}
+      : {type: tool, page: cur, x0: x, y0: y, x1: x, y1: y, color: style.color, fill: style.fill ? style.color : null};
+  });
+  svg.addEventListener("pointermove", e => { if (!draft) return; const [x, y] = pt(e); if (draft.type === "ink") draft.points.push([x, y]); else { draft.x1 = x; draft.y1 = y; } draw(); });
+  svg.addEventListener("pointerup", () => {
+    if (!draft) return;
+    const d = draft; draft = null;
+    const ok = d.type === "ink" ? d.points.length > 2 : d.type === "line" ? Math.hypot(d.x1 - d.x0, d.y1 - d.y0) > 3 : Math.abs(d.x1 - d.x0) > 3 && Math.abs(d.y1 - d.y0) > 3;
+    if (ok) commit(d);
+    draw();
+  });
+  const btns = types.map(ty => h("button", {class: ty === tool ? "on" : "", onclick: () => { tool = ty; btns.forEach(b => b.classList.toggle("on", b === btns[types.indexOf(ty)])); }}, LABEL[ty]));
+  const tabs = h("div", {class: "row tabs"}, types.length > 1 && btns);
+  const styleBar = visual === "edit" && h("div", {class: "row"},
+    h("label", {}, "Colour ", h("input", {type: "color", value: style.color, oninput: e => { style.color = e.target.value; }})),
+    h("label", {}, "Text size ", h("input", {type: "number", value: 16, min: 6, max: 120, style: "width:5rem", oninput: e => { style.size = e.target.value; }})),
+    h("label", {}, h("input", {type: "checkbox", onchange: e => { style.fill = e.target.checked; }}), " Fill shapes"));
+  const nav = h("div", {class: "row"}, h("button", {onclick: () => { if (cur > 1) { cur--; show(); } }}, "◀"), label,
+    h("button", {onclick: () => { if (cur < S.info.pages.length) { cur++; show(); } }}, "▶"), h("span", {class: "hint"}, HINT[visual]));
+  show();
+  return h("div", {}, tabs, styleBar, nav, stage, opsList);
+}
+
+function organizeEditor(S) {
+  const grid = h("div", {class: "pages"});
+  const move = (i, d) => { const j = i + d; if (j < 0 || j >= S.plan.length) return; [S.plan[i], S.plan[j]] = [S.plan[j], S.plan[i]]; render(); };
+  function render() {
+    grid.replaceChildren(...S.plan.map((p, i) => h("div", {class: "tile"},
+      h("div", {class: "th"}, p.blank ? h("span", {class: "hint"}, "blank") : h("img", {src: `/api/preview/${S.info.id}/${p.page}?zoom=0.3`, style: `transform:rotate(${p.rotate || 0}deg)`})),
+      h("div", {}, p.blank ? "Blank" : "Page " + p.page),
+      h("div", {class: "row", style: "justify-content:center;gap:.2rem"},
+        h("button", {onclick: () => move(i, -1), title: "Move left"}, "◀"),
+        h("button", {onclick: () => { p.rotate = ((p.rotate || 0) + 270) % 360; render(); }, title: "Rotate left"}, "↺"),
+        h("button", {onclick: () => { p.rotate = ((p.rotate || 0) + 90) % 360; render(); }, title: "Rotate right"}, "↻"),
+        h("button", {onclick: () => { S.plan.splice(i, 1); render(); }, title: "Delete"}, "✕"),
+        h("button", {onclick: () => move(i, 1), title: "Move right"}, "▶")))));
+  }
+  render();
+  return h("div", {}, h("div", {class: "row"}, h("button", {onclick: () => { S.plan.push({blank: true}); render(); }}, "+ Blank page"),
+    h("button", {onclick: () => { S.plan = S.info.pages.map((_, i) => ({page: i + 1, rotate: 0})); render(); }}, "Reset")), grid);
+}
+
+function formsFillEditor(S) {
+  const f = S.info.fields;
+  if (!f.length) return h("div", {class: "msg err"}, "No fillable form fields found. Use 'Create PDF form' first.");
+  return h("div", {class: "opts"}, f.map(fl => {
+    const set = v => { S.values[fl.name] = v; }, chk = /check/i.test(fl.type);
+    const inp = chk ? h("input", {type: "checkbox", onchange: e => set(e.target.checked)})
+      : fl.choices.length ? h("select", {onchange: e => set(e.target.value)}, h("option", {value: ""}, ""), fl.choices.map(c => h("option", {value: String(c)}, String(c))))
+      : h("input", {type: "text", value: fl.value || "", oninput: e => set(e.target.value)});
+    return h("div", {class: chk ? "chk" : ""}, h("label", {}, chk ? inp : null, `${fl.name} (p.${fl.page})`), chk ? null : inp);
+  }));
+}
+
+function signaturePad(S) {
+  const cv = h("canvas", {class: "pad", width: 480, height: 160}), ctx = cv.getContext("2d");
+  ctx.lineWidth = 3; ctx.lineCap = "round"; ctx.strokeStyle = "#0b2a8a";
+  let down = false, dirty = false;
+  const pos = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height]; };
+  cv.addEventListener("pointerdown", e => { down = true; cv.setPointerCapture(e.pointerId); ctx.beginPath(); ctx.moveTo(...pos(e)); });
+  cv.addEventListener("pointermove", e => { if (down) { ctx.lineTo(...pos(e)); ctx.stroke(); dirty = true; } });
+  cv.addEventListener("pointerup", () => { down = false; if (dirty) S.opts.signature = cv.toDataURL("image/png"); });
+  return h("div", {class: "panel"}, h("b", {}, "Draw your signature"), h("div", {}, cv),
+    h("button", {onclick: () => { ctx.clearRect(0, 0, cv.width, cv.height); dirty = false; delete S.opts.signature; }}, "Clear"), h("span", {class: "hint"}, " or type a name in the options above."));
+}
+
+// ---- workflows --------------------------------------------------------------------------------
+function workflowPage() {
+  const usable = TOOLS.filter(t => !t.visual && !t.multi);
+  const steps = [], files = [], aux = [], status = h("div"), list = h("div");
+  const saved = () => { try { return JSON.parse(localStorage.getItem("pdfkit.workflows") || "{}"); } catch { return {}; } };
+  const sel = h("select", {}, usable.map(t => h("option", {value: t.id}, t.name)));
+  function render() {
+    list.replaceChildren(...steps.map((s, i) => {
+      const t = TOOLS.find(x => x.id === s.tool);
+      return h("div", {class: "panel"}, h("div", {class: "row"}, h("b", {}, `${i + 1}. ${t.name}`),
+        h("button", {onclick: () => { if (i) { [steps[i - 1], steps[i]] = [steps[i], steps[i - 1]]; render(); } }}, "↑"),
+        h("button", {onclick: () => { steps.splice(i, 1); render(); }}, "✕")), optionsForm(t, s.options, aux));
+    }));
+  }
+  const input = h("input", {type: "file", multiple: true, onchange: e => { files.length = 0; files.push(...e.target.files); }});
+  const name = h("input", {type: "text", placeholder: "Workflow name", style: "max-width:200px"});
+  const saves = h("select", {onchange: e => { const w = saved()[e.target.value]; if (w) { steps.length = 0; steps.push(...JSON.parse(JSON.stringify(w))); render(); } }},
+    h("option", {value: ""}, "Load saved..."), Object.keys(saved()).map(k => h("option", {value: k}, k)));
+  mount(h("a", {href: "#/"}, "← All tools"), h("h1", {}, "Workflows"), h("p", {class: "hint"}, "Chain tools: each step's output feeds the next. Only the last step may produce several files."),
+    h("div", {class: "row"}, sel, h("button", {onclick: () => { const t = TOOLS.find(x => x.id === sel.value); steps.push({tool: t.id, options: defaults(t)}); render(); }}, "+ Add step"), saves),
+    list, h("div", {class: "panel"}, h("div", {}, "Input files: ", input),
+      h("div", {class: "row", style: "margin-top:.6rem"}, name,
+        h("button", {onclick: () => { if (!name.value || !steps.length) return; const s = saved(); s[name.value] = steps; localStorage.setItem("pdfkit.workflows", JSON.stringify(s)); status.replaceChildren(h("div", {class: "msg ok"}, "Saved.")); }}, "Save workflow"),
+        h("button", {class: "primary", onclick: async () => {
+          if (!steps.length || !files.length) return status.replaceChildren(h("div", {class: "msg err"}, "Add at least one step and one file."));
+          const fd = new FormData(); files.forEach(f => fd.append("files", f)); aux.forEach(f => fd.append("aux", f)); fd.append("steps", JSON.stringify(steps));
+          await post("/api/workflow", fd, status);
+        }}, "Run workflow")), status));
+  render();
+}
+boot();
+</script>
+</body>
+</html>
